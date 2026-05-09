@@ -38,7 +38,10 @@ export const config = {
         if (!credentials) return null
 
         const user = await db.query.users.findFirst({
-          where: eq(users.email, credentials.email as string),
+          where: eq(
+            users.email,
+            credentials.email as string
+          ),
         })
 
         if (!user || !user.password) return null
@@ -54,7 +57,7 @@ export const config = {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role: user.role ?? 'user',
         }
       },
     }),
@@ -63,27 +66,42 @@ export const config = {
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.role = user.role
+        token.role =
+          (user as { role?: string }).role ?? 'user'
 
-        if (trigger === 'signIn' || trigger === 'signUp') {
+        if (
+          trigger === 'signIn' ||
+          trigger === 'signUp'
+        ) {
           const cookieStore = await cookies()
 
           const sessionCartId =
             cookieStore.get('sessionCartId')?.value
 
           if (!sessionCartId) {
-            throw new Error('Session Cart Not Found')
+            throw new Error(
+              'Session Cart Not Found'
+            )
           }
 
           const sessionCartExists =
             await db.query.carts.findFirst({
-              where: eq(carts.sessionCartId, sessionCartId),
+              where: eq(
+                carts.sessionCartId,
+                sessionCartId
+              ),
             })
 
-          if (sessionCartExists && !sessionCartExists.userId) {
+          if (
+            sessionCartExists &&
+            !sessionCartExists.userId
+          ) {
             const userCartExists =
               await db.query.carts.findFirst({
-                where: eq(carts.userId, user.id as string),
+                where: eq(
+                  carts.userId,
+                  user.id as string
+                ),
               })
 
             if (userCartExists) {
@@ -99,14 +117,24 @@ export const config = {
             } else {
               await db
                 .update(carts)
-                .set({ userId: user.id as string })
-                .where(eq(carts.id, sessionCartExists.id))
+                .set({
+                  userId: user.id as string,
+                })
+                .where(
+                  eq(
+                    carts.id,
+                    sessionCartExists.id
+                  )
+                )
             }
           }
         }
       }
 
-      if (session?.user?.name && trigger === 'update') {
+      if (
+        session?.user?.name &&
+        trigger === 'update'
+      ) {
         token.name = session.user.name
       }
 
@@ -119,7 +147,8 @@ export const config = {
       }
 
       if (token?.role) {
-        session.user.role = token.role as string
+        session.user.role =
+          token.role as string
       }
 
       return session
@@ -140,17 +169,25 @@ export const config = {
 
       if (
         !auth &&
-        protectedPaths.some((path) => path.test(pathname))
+        protectedPaths.some((path) =>
+          path.test(pathname)
+        )
       ) {
         return false
       }
 
-      if (!request.cookies.get('sessionCartId')) {
-        const sessionCartId = crypto.randomUUID()
+      if (
+        !request.cookies.get('sessionCartId')
+      ) {
+        const sessionCartId =
+          crypto.randomUUID()
 
         const response = NextResponse.next()
 
-        response.cookies.set('sessionCartId', sessionCartId)
+        response.cookies.set(
+          'sessionCartId',
+          sessionCartId
+        )
 
         return response
       }
