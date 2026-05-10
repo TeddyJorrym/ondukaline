@@ -3,6 +3,12 @@ export const APP_DESCRIPTION =
   process.env.NEXT_PUBLIC_APP_DESCRIPTION ||
   'A project built with Next.js, Postgres, Shadcn'
 
+export const PAYMENT_METHODS = process.env.PAYMENT_METHODS
+  ? process.env.PAYMENT_METHODS.split(', ')
+  : ['Mpesa', 'PayPal', 'Stripe', 'CashOnDelivery']
+export const DEFAULT_PAYMENT_METHOD =
+  process.env.DEFAULT_PAYMENT_METHOD || 'Mpesa'
+
 export const signInDefaultValues = {
   email: '',
   password: '',
