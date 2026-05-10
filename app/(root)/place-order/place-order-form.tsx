@@ -1,10 +1,8 @@
 'use client'
 
+import { useActionState } from 'react'
+import { useFormStatus } from 'react-dom'
 import { Check, Loader } from 'lucide-react'
-import {
-  useFormState,
-  useFormStatus,
-} from 'react-dom'
 
 import { Button } from '@/components/ui/button'
 import { createOrder } from '@/lib/actions/order.actions'
@@ -14,13 +12,14 @@ function PlaceOrderButton() {
 
   return (
     <Button
+      type="submit"
       disabled={pending}
       className="w-full"
     >
       {pending ? (
-        <Loader className="h-4 w-4 animate-spin" />
+        <Loader className="w-4 h-4 animate-spin" />
       ) : (
-        <Check className="h-4 w-4" />
+        <Check className="w-4 h-4" />
       )}
 
       <span className="ml-2">
@@ -31,7 +30,7 @@ function PlaceOrderButton() {
 }
 
 export default function PlaceOrderForm() {
-  const [data, action] = useFormState(
+  const [data, action] = useActionState(
     createOrder,
     {
       success: false,
@@ -51,6 +50,62 @@ export default function PlaceOrderForm() {
     </form>
   )
 }
+
+
+
+// 'use client'
+
+// import { Check, Loader } from 'lucide-react'
+// import {
+//   useFormState,
+//   useFormStatus,
+// } from 'react-dom'
+
+// import { Button } from '@/components/ui/button'
+// import { createOrder } from '@/lib/actions/order.actions'
+
+// function PlaceOrderButton() {
+//   const { pending } = useFormStatus()
+
+//   return (
+//     <Button
+//       disabled={pending}
+//       className="w-full"
+//     >
+//       {pending ? (
+//         <Loader className="h-4 w-4 animate-spin" />
+//       ) : (
+//         <Check className="h-4 w-4" />
+//       )}
+
+//       <span className="ml-2">
+//         Place Order
+//       </span>
+//     </Button>
+//   )
+// }
+
+// export default function PlaceOrderForm() {
+//   const [data, action] = useFormState(
+//     createOrder,
+//     {
+//       success: false,
+//       message: '',
+//     }
+//   )
+
+//   return (
+//     <form action={action} className="w-full">
+//       <PlaceOrderButton />
+
+//       {!data.success && data.message && (
+//         <p className="py-4 text-destructive">
+//           {data.message}
+//         </p>
+//       )}
+//     </form>
+//   )
+// }
 
 
 
