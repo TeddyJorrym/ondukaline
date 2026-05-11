@@ -25,7 +25,10 @@ import { users } from '@/db/schema'
 
 import { ShippingAddress } from '@/types'
 
-import { eq } from 'drizzle-orm'
+import {
+  and,
+  eq,
+} from 'drizzle-orm'
 
 import { revalidatePath } from 'next/cache'
 
@@ -37,21 +40,30 @@ export async function signUp(
   formData: FormData
 ) {
   try {
-    const user = signUpFormSchema.parse({
-      name: formData.get('name'),
-      email: formData.get('email'),
-      confirmPassword:
-        formData.get('confirmPassword'),
-      password: formData.get('password'),
-    })
+    const user =
+      signUpFormSchema.parse({
+        name: formData.get('name'),
+        email: formData.get('email'),
+        confirmPassword:
+          formData.get(
+            'confirmPassword'
+          ),
+        password:
+          formData.get('password'),
+      })
 
     const values = {
       id: crypto.randomUUID(),
       ...user,
-      password: hashSync(user.password, 10),
+      password: hashSync(
+        user.password,
+        10
+      ),
     }
 
-    await db.insert(users).values(values)
+    await db
+      .insert(users)
+      .values(values)
 
     await signIn('credentials', {
       email: user.email,
@@ -60,7 +72,8 @@ export async function signUp(
 
     return {
       success: true,
-      message: 'User created successfully',
+      message:
+        'User created successfully',
     }
   } catch (error) {
     if (isRedirectError(error)) {
@@ -69,7 +82,9 @@ export async function signUp(
 
     return {
       success: false,
-      message: formatError(error).includes(
+      message: formatError(
+        error
+      ).includes(
         'duplicate key value violates unique constraint "user_email_idx"'
       )
         ? 'Email already exists'
@@ -86,16 +101,22 @@ export async function signInWithCredentials(
   formData: FormData
 ) {
   try {
-    const user = signInFormSchema.parse({
-      email: String(formData.get('email')),
-      password: String(
-        formData.get('password')
-      ),
-    })
+    const user =
+      signInFormSchema.parse({
+        email: String(
+          formData.get('email')
+        ),
+        password: String(
+          formData.get('password')
+        ),
+      })
 
     const callbackUrl =
-      String(formData.get('callbackUrl')) ||
-      '/'
+      String(
+        formData.get(
+          'callbackUrl'
+        )
+      ) || '/'
 
     await signIn('credentials', {
       email: user.email,
@@ -105,7 +126,8 @@ export async function signInWithCredentials(
 
     return {
       success: true,
-      message: 'Signed in successfully',
+      message:
+        'Signed in successfully',
     }
   } catch (error) {
     if (isRedirectError(error)) {
@@ -114,7 +136,8 @@ export async function signInWithCredentials(
 
     return {
       success: false,
-      message: 'Invalid email or password',
+      message:
+        'Invalid email or password',
     }
   }
 }
@@ -128,13 +151,16 @@ export const SignOut = async () => {
 export async function getUserById(
   userId: string
 ) {
-  const user = await db.query.users.findFirst({
-    where: (users, { eq }) =>
-      eq(users.id, userId),
-  })
+  const user =
+    await db.query.users.findFirst({
+      where: (users, { eq }) =>
+        eq(users.id, userId),
+    })
 
   if (!user) {
-    throw new Error('User not found')
+    throw new Error(
+      'User not found'
+    )
   }
 
   return user
@@ -147,7 +173,9 @@ export async function updateUserAddress(
     const session = await auth()
 
     if (!session?.user?.id) {
-      throw new Error('Unauthorized')
+      throw new Error(
+        'Unauthorized'
+      )
     }
 
     const currentUser =
@@ -160,11 +188,15 @@ export async function updateUserAddress(
       })
 
     if (!currentUser) {
-      throw new Error('User not found')
+      throw new Error(
+        'User not found'
+      )
     }
 
     const address =
-      shippingAddressSchema.parse(data)
+      shippingAddressSchema.parse(
+        data
+      )
 
     await db
       .update(users)
@@ -176,11 +208,14 @@ export async function updateUserAddress(
         )
       )
 
-    revalidatePath('/place-order')
+    revalidatePath(
+      '/place-order'
+    )
 
     return {
       success: true,
-      message: 'User updated successfully',
+      message:
+        'User updated successfully',
     }
   } catch (error) {
     return {
@@ -199,7 +234,9 @@ export async function updateUserPaymentMethod(
     const session = await auth()
 
     if (!session?.user?.id) {
-      throw new Error('Unauthorized')
+      throw new Error(
+        'Unauthorized'
+      )
     }
 
     const currentUser =
@@ -212,11 +249,15 @@ export async function updateUserPaymentMethod(
       })
 
     if (!currentUser) {
-      throw new Error('User not found')
+      throw new Error(
+        'User not found'
+      )
     }
 
     const paymentMethod =
-      paymentMethodSchema.parse(data)
+      paymentMethodSchema.parse(
+        data
+      )
 
     await db
       .update(users)
@@ -231,7 +272,9 @@ export async function updateUserPaymentMethod(
         )
       )
 
-    revalidatePath('/place-order')
+    revalidatePath(
+      '/place-order'
+    )
 
     return {
       success: true,
@@ -246,6 +289,340 @@ export async function updateUserPaymentMethod(
   }
 }
 
+export async function updateProfile(
+  user: {
+    name: string
+    email: string
+  }
+) {
+  try {
+    const session = await auth()
+
+    if (!session?.user?.id) {
+      throw new Error(
+        'Unauthorized'
+      )
+    }
+
+    const currentUser =
+      await db.query.users.findFirst({
+        where: (users, { eq }) =>
+          eq(
+            users.id,
+            session.user.id
+          ),
+      })
+
+    if (!currentUser) {
+      throw new Error(
+        'User not found'
+      )
+    }
+
+    await db
+      .update(users)
+      .set({
+        name: user.name,
+      })
+      .where(
+        and(
+          eq(
+            users.id,
+            currentUser.id
+          )
+        )
+      )
+
+    revalidatePath(
+      '/user/profile'
+    )
+
+    return {
+      success: true,
+      message:
+        'User updated successfully',
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: formatError(error),
+    }
+  }
+}
+
+
+
+
+// 'use server'
+
+// import { isRedirectError } from 'next/dist/client/components/redirect-error'
+
+// import {
+//   auth,
+//   signIn,
+//   signOut,
+// } from '@/auth'
+
+// import {
+//   paymentMethodSchema,
+//   shippingAddressSchema,
+//   signInFormSchema,
+//   signUpFormSchema,
+// } from '../validator'
+
+// import { formatError } from '../utils'
+
+// import { hashSync } from 'bcrypt-ts-edge'
+
+// import db from '@/db/drizzle'
+
+// import { users } from '@/db/schema'
+
+// import { ShippingAddress } from '@/types'
+
+// import { eq } from 'drizzle-orm'
+
+// import { revalidatePath } from 'next/cache'
+
+// import z from 'zod'
+
+// // USER
+// export async function signUp(
+//   prevState: unknown,
+//   formData: FormData
+// ) {
+//   try {
+//     const user = signUpFormSchema.parse({
+//       name: formData.get('name'),
+//       email: formData.get('email'),
+//       confirmPassword:
+//         formData.get('confirmPassword'),
+//       password: formData.get('password'),
+//     })
+
+//     const values = {
+//       id: crypto.randomUUID(),
+//       ...user,
+//       password: hashSync(user.password, 10),
+//     }
+
+//     await db.insert(users).values(values)
+
+//     await signIn('credentials', {
+//       email: user.email,
+//       password: user.password,
+//     })
+
+//     return {
+//       success: true,
+//       message: 'User created successfully',
+//     }
+//   } catch (error) {
+//     if (isRedirectError(error)) {
+//       throw error
+//     }
+
+//     return {
+//       success: false,
+//       message: formatError(error).includes(
+//         'duplicate key value violates unique constraint "user_email_idx"'
+//       )
+//         ? 'Email already exists'
+//         : formatError(error),
+//     }
+//   }
+// }
+
+// export async function signInWithCredentials(
+//   prevState: {
+//     success: boolean
+//     message: string
+//   },
+//   formData: FormData
+// ) {
+//   try {
+//     const user = signInFormSchema.parse({
+//       email: String(formData.get('email')),
+//       password: String(
+//         formData.get('password')
+//       ),
+//     })
+
+//     const callbackUrl =
+//       String(formData.get('callbackUrl')) ||
+//       '/'
+
+//     await signIn('credentials', {
+//       email: user.email,
+//       password: user.password,
+//       redirectTo: callbackUrl,
+//     })
+
+//     return {
+//       success: true,
+//       message: 'Signed in successfully',
+//     }
+//   } catch (error) {
+//     if (isRedirectError(error)) {
+//       throw error
+//     }
+
+//     return {
+//       success: false,
+//       message: 'Invalid email or password',
+//     }
+//   }
+// }
+
+// export const SignOut = async () => {
+//   await signOut({
+//     redirectTo: '/',
+//   })
+// }
+
+// export async function getUserById(
+//   userId: string
+// ) {
+//   const user = await db.query.users.findFirst({
+//     where: (users, { eq }) =>
+//       eq(users.id, userId),
+//   })
+
+//   if (!user) {
+//     throw new Error('User not found')
+//   }
+
+//   return user
+// }
+
+// export async function updateUserAddress(
+//   data: ShippingAddress
+// ) {
+//   try {
+//     const session = await auth()
+
+//     if (!session?.user?.id) {
+//       throw new Error('Unauthorized')
+//     }
+
+//     const currentUser =
+//       await db.query.users.findFirst({
+//         where: (users, { eq }) =>
+//           eq(
+//             users.id,
+//             session.user.id as string
+//           ),
+//       })
+
+//     if (!currentUser) {
+//       throw new Error('User not found')
+//     }
+
+//     const address =
+//       shippingAddressSchema.parse(data)
+
+//     await db
+//       .update(users)
+//       .set({ address })
+//       .where(
+//         eq(
+//           users.id,
+//           currentUser.id
+//         )
+//       )
+
+//     revalidatePath('/place-order')
+
+//     return {
+//       success: true,
+//       message: 'User updated successfully',
+//     }
+//   } catch (error) {
+//     return {
+//       success: false,
+//       message: formatError(error),
+//     }
+//   }
+// }
+
+// export async function updateUserPaymentMethod(
+//   data: z.infer<
+//     typeof paymentMethodSchema
+//   >
+// ) {
+//   try {
+//     const session = await auth()
+
+//     if (!session?.user?.id) {
+//       throw new Error('Unauthorized')
+//     }
+
+//     const currentUser =
+//       await db.query.users.findFirst({
+//         where: (users, { eq }) =>
+//           eq(
+//             users.id,
+//             session.user.id as string
+//           ),
+//       })
+
+//     if (!currentUser) {
+//       throw new Error('User not found')
+//     }
+
+//     const paymentMethod =
+//       paymentMethodSchema.parse(data)
+
+//     await db
+//       .update(users)
+//       .set({
+//         paymentMethod:
+//           paymentMethod.type,
+//       })
+//       .where(
+//         eq(
+//           users.id,
+//           currentUser.id
+//         )
+//       )
+
+//     revalidatePath('/place-order')
+
+//     return {
+//       success: true,
+//       message:
+//         'Payment method updated successfully',
+//     }
+//   } catch (error) {
+//     return {
+//       success: false,
+//       message: formatError(error),
+//     }
+//   }
+// }
+
+// export async function updateProfile(user: { name: string; email: string }) {
+//   try {
+//     const session = await auth()
+//     const currentUser = await db.query.users.findFirst({
+//       where: (users, { eq }) => eq(users.id, session?.user.id!),
+//     })
+//     if (!currentUser) throw new Error('User not found')
+//     await db
+//       .update(users)
+//       .set({
+//         name: user.name,
+//       })
+//       .where(and(eq(users.id, currentUser.id)))
+
+//     return {
+//       success: true,
+//       message: 'User updated successfully',
+//     }
+//   } catch (error) {
+//     return { success: false, message: formatError(error) }
+//   }
+// }
 
 
 
