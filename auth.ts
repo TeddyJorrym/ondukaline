@@ -4,11 +4,14 @@ import { eq } from 'drizzle-orm'
 import type { NextAuthConfig } from 'next-auth'
 import NextAuth from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
-import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
+import Resend from 'next-auth/providers/resend'
+import Google from 'next-auth/providers/google'
 
 import db from './db/drizzle'
 import { carts, users } from './db/schema'
+import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { APP_NAME, SENDER_EMAIL } from './lib/constants'
 
 export const config = {
   pages: {
@@ -38,117 +41,114 @@ export const config = {
         if (!credentials) return null
 
         const user = await db.query.users.findFirst({
-          where: eq(
-            users.email,
-            credentials.email as string
-          ),
+          where: eq(users.email, credentials.email as string),
         })
 
-        if (!user || !user.password) return null
+        if (user && user.password) {
+          const isMatch = compareSync(
+            credentials.password as string,
+            user.password
+          )
 
-        const isMatch = compareSync(
-          credentials.password as string,
-          user.password
-        )
-
-        if (!isMatch) return null
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role ?? 'user',
+          if (isMatch) {
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              role: user.role,
+            }
+          }
         }
+
+        return null
       },
+    }),
+
+    Resend({
+      name: 'Email',
+      from: `${APP_NAME} <${SENDER_EMAIL}>`,
+      id: 'email',
+    }),
+
+    Google({
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
 
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
-      if (user) {
-        token.role =
-          (user as { role?: string }).role ?? 'user'
+    jwt: async ({ token, user, trigger, session }) => {
+  if (user) {
+    if (user.name === 'NO_NAME' && user.id) {
+      token.name = user.email!.split('@')[0]
 
-        if (
-          trigger === 'signIn' ||
-          trigger === 'signUp'
-        ) {
-          const cookieStore = await cookies()
+      await db
+        .update(users)
+        .set({
+          name: token.name,
+        })
+        .where(eq(users.id, user.id))
+    }
 
-          const sessionCartId =
-            cookieStore.get('sessionCartId')?.value
+    token.role = user.role
 
-          if (!sessionCartId) {
-            throw new Error(
-              'Session Cart Not Found'
-            )
-          }
+    if (trigger === 'signIn' || trigger === 'signUp') {
+      const cookieStore = await cookies()
 
-          const sessionCartExists =
-            await db.query.carts.findFirst({
-              where: eq(
-                carts.sessionCartId,
-                sessionCartId
-              ),
+      const sessionCartId =
+        cookieStore.get('sessionCartId')?.value
+
+      if (!sessionCartId) {
+        throw new Error('Session Cart Not Found')
+      }
+
+      const sessionCartExists =
+        await db.query.carts.findFirst({
+          where: eq(carts.sessionCartId, sessionCartId),
+        })
+
+      if (sessionCartExists && !sessionCartExists.userId) {
+        const userCartExists =
+          await db.query.carts.findFirst({
+            where: eq(carts.userId, user.id!),
+          })
+
+        if (userCartExists) {
+          cookieStore.set(
+            'beforeSigninSessionCartId',
+            sessionCartId
+          )
+
+          cookieStore.set(
+            'sessionCartId',
+            userCartExists.sessionCartId
+          )
+        } else {
+          await db
+            .update(carts)
+            .set({
+              userId: user.id!,
             })
-
-          if (
-            sessionCartExists &&
-            !sessionCartExists.userId
-          ) {
-            const userCartExists =
-              await db.query.carts.findFirst({
-                where: eq(
-                  carts.userId,
-                  user.id as string
-                ),
-              })
-
-            if (userCartExists) {
-              cookieStore.set(
-                'beforeSigninSessionCartId',
-                sessionCartId
-              )
-
-              cookieStore.set(
-                'sessionCartId',
-                userCartExists.sessionCartId
-              )
-            } else {
-              await db
-                .update(carts)
-                .set({
-                  userId: user.id as string,
-                })
-                .where(
-                  eq(
-                    carts.id,
-                    sessionCartExists.id
-                  )
-                )
-            }
-          }
+            .where(eq(carts.id, sessionCartExists.id))
         }
       }
+    }
+  }
 
-      if (
-        session?.user?.name &&
-        trigger === 'update'
-      ) {
-        token.name = session.user.name
-      }
+  if (session?.user?.name && trigger === 'update') {
+    token.name = session.user.name
+  }
 
-      return token
-    },
+  return token
+},
 
-    async session({ session, token }) {
-      if (token?.sub) {
-        session.user.id = token.sub
-      }
+    session: async ({ session, token, trigger, user }) => {
+      if (session.user) {
+        session.user.id = token.sub as string
+        session.user.role = token.role as string
 
-      if (token?.role) {
-        session.user.role =
-          token.role as string
+        if (trigger === 'update') {
+          session.user.name = token.name as string
+        }
       }
 
       return session
@@ -169,20 +169,23 @@ export const config = {
 
       if (
         !auth &&
-        protectedPaths.some((path) =>
-          path.test(pathname)
-        )
+        protectedPaths.some((path) => path.test(pathname))
       ) {
         return false
       }
 
-      if (
-        !request.cookies.get('sessionCartId')
-      ) {
-        const sessionCartId =
-          crypto.randomUUID()
+      if (!request.cookies.get('sessionCartId')) {
+        const sessionCartId = crypto.randomUUID()
 
-        const response = NextResponse.next()
+        const newRequestHeaders = new Headers(
+          request.headers
+        )
+
+        const response = NextResponse.next({
+          request: {
+            headers: newRequestHeaders,
+          },
+        })
 
         response.cookies.set(
           'sessionCartId',
@@ -197,13 +200,8 @@ export const config = {
   },
 } satisfies NextAuthConfig
 
-export const {
-  handlers,
-  auth,
-  signIn,
-  signOut,
-} = NextAuth(config)
-
+export const { handlers, auth, signIn, signOut } =
+  NextAuth(config)
 
 
 
@@ -219,11 +217,14 @@ export const {
 // import type { NextAuthConfig } from 'next-auth'
 // import NextAuth from 'next-auth'
 // import CredentialsProvider from 'next-auth/providers/credentials'
-// import { cookies } from 'next/headers'
-// import { NextResponse } from 'next/server'
+// import Resend from 'next-auth/providers/resend'
+// import Google from 'next-auth/providers/google'
 
 // import db from './db/drizzle'
 // import { carts, users } from './db/schema'
+// import { cookies } from 'next/headers'
+// import { NextResponse } from 'next/server'
+// import { APP_NAME, SENDER_EMAIL } from './lib/constants'
 
 // export const config = {
 //   pages: {
@@ -256,28 +257,263 @@ export const {
 //           where: eq(users.email, credentials.email as string),
 //         })
 
-//         if (!user || !user.password) return null
+//         if (user && user.password) {
+//           const isMatch = compareSync(
+//             credentials.password as string,
+//             user.password
+//           )
 
-//         const isMatch = compareSync(
-//           credentials.password as string,
-//           user.password
-//         )
-
-//         if (!isMatch) return null
-
-//         return {
-//           id: user.id,
-//           name: user.name,
-//           email: user.email,
-//           role: user.role,
+//           if (isMatch) {
+//             return {
+//               id: user.id,
+//               name: user.name,
+//               email: user.email,
+//               role: user.role,
+//             }
+//           }
 //         }
+
+//         return null
 //       },
+//     }),
+
+//     Resend({
+//       name: 'Email',
+//       from: `${APP_NAME} <${SENDER_EMAIL}>`,
+//       id: 'email',
+//     }),
+
+//     Google({
+//       allowDangerousEmailAccountLinking: true,
 //     }),
 //   ],
 
 //   callbacks: {
-//     async jwt({ token, user, trigger, session }: any) {
+//     jwt: async ({ token, user, trigger, session }) => {
 //       if (user) {
+//         if (user.name === 'NO_NAME') {
+//           token.name = user.email!.split('@')[0]
+
+//           await db
+//             .update(users)
+//             .set({
+//               name: token.name,
+//             })
+//             .where(eq(users.id, user.id))
+//         }
+
+//         token.role = user.role
+
+//         if (trigger === 'signIn' || trigger === 'signUp') {
+//           const cookieStore = cookies()
+
+//           const sessionCartId =
+//             cookieStore.get('sessionCartId')?.value
+
+//           if (!sessionCartId) {
+//             throw new Error('Session Cart Not Found')
+//           }
+
+//           const sessionCartExists =
+//             await db.query.carts.findFirst({
+//               where: eq(carts.sessionCartId, sessionCartId),
+//             })
+
+//           if (sessionCartExists && !sessionCartExists.userId) {
+//             const userCartExists =
+//               await db.query.carts.findFirst({
+//                 where: eq(carts.userId, user.id),
+//               })
+
+//             if (userCartExists) {
+//               cookieStore.set(
+//                 'beforeSigninSessionCartId',
+//                 sessionCartId
+//               )
+
+//               cookieStore.set(
+//                 'sessionCartId',
+//                 userCartExists.sessionCartId
+//               )
+//             } else {
+//               await db
+//                 .update(carts)
+//                 .set({
+//                   userId: user.id,
+//                 })
+//                 .where(eq(carts.id, sessionCartExists.id))
+//             }
+//           }
+//         }
+//       }
+
+//       if (session?.user?.name && trigger === 'update') {
+//         token.name = session.user.name
+//       }
+
+//       return token
+//     },
+
+//     session: async ({ session, token, trigger, user }) => {
+//       if (session.user) {
+//         session.user.id = token.sub as string
+//         session.user.role = token.role as string
+
+//         if (trigger === 'update') {
+//           session.user.name = user.name
+//         }
+//       }
+
+//       return session
+//     },
+
+//     authorized({ request, auth }) {
+//       const protectedPaths = [
+//         /\/shipping-address/,
+//         /\/payment-method/,
+//         /\/place-order/,
+//         /\/profile/,
+//         /\/user\/(.*)/,
+//         /\/order\/(.*)/,
+//         /\/admin/,
+//       ]
+
+//       const { pathname } = request.nextUrl
+
+//       if (
+//         !auth &&
+//         protectedPaths.some((path) => path.test(pathname))
+//       ) {
+//         return false
+//       }
+
+//       if (!request.cookies.get('sessionCartId')) {
+//         const sessionCartId = crypto.randomUUID()
+
+//         const newRequestHeaders = new Headers(
+//           request.headers
+//         )
+
+//         const response = NextResponse.next({
+//           request: {
+//             headers: newRequestHeaders,
+//           },
+//         })
+
+//         response.cookies.set(
+//           'sessionCartId',
+//           sessionCartId
+//         )
+
+//         return response
+//       }
+
+//       return true
+//     },
+//   },
+// } satisfies NextAuthConfig
+
+// export const { handlers, auth, signIn, signOut } =
+//   NextAuth(config)
+
+
+
+
+
+
+// import { DrizzleAdapter } from '@auth/drizzle-adapter'
+// import { compareSync } from 'bcrypt-ts-edge'
+// import { eq } from 'drizzle-orm'
+// import type { NextAuthConfig } from 'next-auth'
+// import NextAuth from 'next-auth'
+// import CredentialsProvider from 'next-auth/providers/credentials'
+// import Resend from 'next-auth/providers/resend'
+// import Google from 'next-auth/providers/google'
+
+// import db from './db/drizzle'
+// import { carts, users } from './db/schema'
+// import { cookies } from 'next/headers'
+// import { NextResponse } from 'next/server'
+// import { APP_NAME, SENDER_EMAIL } from './lib/constants'
+
+// export const config = {
+//   pages: {
+//     signIn: '/sign-in',
+//     error: '/sign-in',
+//   },
+
+//   session: {
+//     strategy: 'jwt',
+//     maxAge: 30 * 24 * 60 * 60,
+//   },
+
+//   adapter: DrizzleAdapter(db),
+
+//   providers: [
+//     CredentialsProvider({
+//       credentials: {
+//         email: {
+//           type: 'email',
+//         },
+//         password: {
+//           type: 'password',
+//         },
+//       },
+
+//       async authorize(credentials) {
+//         if (!credentials) return null
+
+//         const user = await db.query.users.findFirst({
+//           where: eq(users.email, credentials.email as string),
+//         })
+
+//         if (user && user.password) {
+//           const isMatch = compareSync(
+//             credentials.password as string,
+//             user.password
+//           )
+
+//           if (isMatch) {
+//             return {
+//               id: user.id,
+//               name: user.name,
+//               email: user.email,
+//               role: user.role,
+//             }
+//           }
+//         }
+
+//         return null
+//       },
+//     }),
+
+//     Resend({
+//       name: 'Email',
+//       from: `${APP_NAME} <${SENDER_EMAIL}>`,
+//       id: 'email',
+//     }),
+
+//     Google({
+//       allowDangerousEmailAccountLinking: true,
+//     }),
+//   ],
+
+//   callbacks: {
+//     jwt: async ({ token, user, trigger, session }) => {
+//       if (user) {
+//         if (user.name === 'NO_NAME') {
+//           token.name = user.email!.split('@')[0]
+
+//           await db
+//             .update(users)
+//             .set({
+//               name: token.name,
+//             })
+//             .where(eq(users.id, user.id))
+//         }
+
+//         token.role = user.role
+
 //         if (trigger === 'signIn' || trigger === 'signUp') {
 //           const cookieStore = await cookies()
 
@@ -312,7 +548,9 @@ export const {
 //             } else {
 //               await db
 //                 .update(carts)
-//                 .set({ userId: user.id })
+//                 .set({
+//                   userId: user.id,
+//                 })
 //                 .where(eq(carts.id, sessionCartExists.id))
 //             }
 //           }
@@ -326,19 +564,20 @@ export const {
 //       return token
 //     },
 
-//     async session({ session, token }: any) {
-//       if (token?.sub) {
-//         session.user.id = token.sub
-//       }
+//     session: async ({ session, token, trigger, user }) => {
+//       if (session.user) {
+//         session.user.id = token.sub as string
+//         session.user.role = token.role as string
 
-//       if (token?.role) {
-//         session.user.role = token.role
+//         if (trigger === 'update') {
+//           session.user.name = user.name
+//         }
 //       }
 
 //       return session
 //     },
 
-//     authorized({ request, auth }: any) {
+//     authorized({ request, auth }) {
 //       const protectedPaths = [
 //         /\/shipping-address/,
 //         /\/payment-method/,
@@ -361,9 +600,20 @@ export const {
 //       if (!request.cookies.get('sessionCartId')) {
 //         const sessionCartId = crypto.randomUUID()
 
-//         const response = NextResponse.next()
+//         const newRequestHeaders = new Headers(
+//           request.headers
+//         )
 
-//         response.cookies.set('sessionCartId', sessionCartId)
+//         const response = NextResponse.next({
+//           request: {
+//             headers: newRequestHeaders,
+//           },
+//         })
+
+//         response.cookies.set(
+//           'sessionCartId',
+//           sessionCartId
+//         )
 
 //         return response
 //       }
@@ -373,12 +623,12 @@ export const {
 //   },
 // } satisfies NextAuthConfig
 
-// export const {
-//   handlers,
-//   auth,
-//   signIn,
-//   signOut,
-// } = NextAuth(config)
+// export const { handlers, auth, signIn, signOut } =
+//   NextAuth(config)
+
+
+
+
 
 
 
@@ -391,11 +641,14 @@ export const {
 // import type { NextAuthConfig } from 'next-auth'
 // import NextAuth from 'next-auth'
 // import CredentialsProvider from 'next-auth/providers/credentials'
+// import Resend from 'next-auth/providers/resend'
+// import Google from 'next-auth/providers/google'
 
 // import db from './db/drizzle'
 // import { carts, users } from './db/schema'
 // import { cookies } from 'next/headers'
 // import { NextResponse } from 'next/server'
+// import { APP_NAME, SENDER_EMAIL } from './lib/constants'
 
 // export const config = {
 //   pages: {
@@ -438,10 +691,29 @@ export const {
 //         return null
 //       },
 //     }),
+//     Resend({
+//       name: 'Email',
+//       from: `${APP_NAME} <${SENDER_EMAIL}>`,
+//       id: 'email',
+//     }),
+//     Google({
+//       allowDangerousEmailAccountLinking: true,
+//     }),
 //   ],
 //   callbacks: {
-//       jwt: async ({ token, user, trigger, session }: any) => {
+//     jwt: async ({ token, user, trigger, session }: any) => {
 //       if (user) {
+//         if (user.name === 'NO_NAME') {
+//           token.name = user.email!.split('@')[0]
+//           await db
+//             .update(users)
+//             .set({
+//               name: token.name,
+//             })
+//             .where(eq(users.id, user.id))
+//         }
+
+//         token.role = user.role
 //         if (trigger === 'signIn' || trigger === 'signUp') {
 //           const sessionCartId = cookies().get('sessionCartId')?.value
 //           if (!sessionCartId) throw new Error('Session Cart Not Found')
@@ -467,10 +739,12 @@ export const {
 //       if (session?.user.name && trigger === 'update') {
 //         token.name = session.user.name
 //       }
+
 //       return token
 //     },
 //     session: async ({ session, user, trigger, token }: any) => {
 //       session.user.id = token.sub
+//       session.user.role = token.role
 //       if (trigger === 'update') {
 //         session.user.name = user.name
 //       }
@@ -503,171 +777,5 @@ export const {
 //       }
 //     },
 //   },
-//   },
-//  satisfies NextAuthConfig
+// } satisfies NextAuthConfig
 // export const { handlers, auth, signIn, signOut } = NextAuth(config)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { DrizzleAdapter } from '@auth/drizzle-adapter'
-// import { compareSync } from 'bcrypt-ts-edge'
-// import { eq } from 'drizzle-orm'
-// import type { NextAuthConfig, Session } from 'next-auth'
-// import NextAuth from 'next-auth'
-// import CredentialsProvider from 'next-auth/providers/credentials'
-
-// import db from './db/drizzle'
-// import { users } from './db/schema'
-
-// export const config = {
-//   pages: {
-//     signIn: '/sign-in',
-//     error: '/sign-in',
-//   },
-
-//   session: {
-//     strategy: 'jwt',
-//     maxAge: 30 * 24 * 60 * 60,
-//   },
-
-//   adapter: DrizzleAdapter(db),
-
-//   providers: [
-//     CredentialsProvider({
-//       credentials: {
-//         email: {
-//           type: 'email',
-//         },
-
-//         password: {
-//           type: 'password',
-//         },
-//       },
-
-//       async authorize(credentials) {
-//         if (!credentials) return null
-
-//         const user = await db.query.users.findFirst({
-//           where: eq(users.email, credentials.email as string),
-//         })
-
-//         if (!user || !user.password) {
-//           return null
-//         }
-
-//         const isMatch = compareSync(
-//           credentials.password as string,
-//           user.password
-//         )
-
-//         if (!isMatch) {
-//           return null
-//         }
-
-//         return {
-//           id: user.id,
-//           name: user.name,
-//           email: user.email,
-//           role: user.role,
-//         }
-//       },
-//     }),
-//   ],
-
-//   callbacks: {
-//       jwt: async ({ token, user, trigger, session }: any) => {
-//       if (user) {
-//         if (trigger === 'signIn' || trigger === 'signUp') {
-//           const sessionCartId = cookies().get('sessionCartId')?.value
-//           if (!sessionCartId) throw new Error('Session Cart Not Found')
-//           const sessionCartExists = await db.query.carts.findFirst({
-//             where: eq(carts.sessionCartId, sessionCartId),
-//           })
-//           if (sessionCartExists && !sessionCartExists.userId) {
-//             const userCartExists = await db.query.carts.findFirst({
-//               where: eq(carts.userId, user.id),
-//             })
-//             if (userCartExists) {
-//               cookies().set('beforeSigninSessionCartId', sessionCartId)
-//               cookies().set('sessionCartId', userCartExists.sessionCartId)
-//             } else {
-//               db.update(carts)
-//                 .set({ userId: user.id })
-//                 .where(eq(carts.id, sessionCartExists.id))
-//             }
-//           }
-//         }
-//       }
-
-//       if (session?.user.name && trigger === 'update') {
-//         token.name = session.user.name
-//       }
-//       return token
-//     },
-//     async session({ session, token }: {
-//       session: Session
-//       token: { sub?: string }
-//     }) {
-//       if (token.sub && session.user) {
-//         session.user.id = token.sub
-//       }
-
-//       return session
-//     },
-//     authorized({ request, auth }: any) {
-//       const protectedPaths = [
-//         /\/shipping-address/,
-//         /\/payment-method/,
-//         /\/place-order/,
-//         /\/profile/,
-//         /\/user\/(.*)/,
-//         /\/order\/(.*)/,
-//         /\/admin/,
-//       ]
-//       const { pathname } = request.nextUrl
-//       if (!auth && protectedPaths.some((p) => p.test(pathname))) return false
-//       if (!request.cookies.get('sessionCartId')) {
-//         const sessionCartId = crypto.randomUUID()
-//         const newRequestHeaders = new Headers(request.headers)
-//         const response = NextResponse.next({
-//           request: {
-//             headers: newRequestHeaders,
-//           },
-//         })
-//         response.cookies.set('sessionCartId', sessionCartId)
-//         return response
-//       } else {
-//         return true
-//       }
-//     },
-//   },
-//   },
-//  satisfies NextAuthConfig
-
-// export const { handlers, auth, signIn, signOut } = NextAuth(config)
-
-
-
-
-
-
-

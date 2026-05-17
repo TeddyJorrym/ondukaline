@@ -1,15 +1,22 @@
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'Ondukaline'
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'Amazona'
 export const APP_DESCRIPTION =
   process.env.NEXT_PUBLIC_APP_DESCRIPTION ||
-  'A project built with Next.js, Postgres, Shadcn'
+  'An Amazon clone built with Next.js, Postgres, Shadcn'
+
+export const SENDER_EMAIL = process.env.SENDER_EMAIL || 'onboarding@resend.dev'
 
 export const PAGE_SIZE = Number(process.env.PAGE_SIZE) || 3
 
 export const PAYMENT_METHODS = process.env.PAYMENT_METHODS
   ? process.env.PAYMENT_METHODS.split(', ')
-  : ['Mpesa', 'PayPal', 'Stripe', 'CashOnDelivery']
+  : ['PayPal', 'Stripe', 'CashOnDelivery']
+
 export const DEFAULT_PAYMENT_METHOD =
-  process.env.DEFAULT_PAYMENT_METHOD || 'Mpesa'
+  process.env.DEFAULT_PAYMENT_METHOD || 'PayPal'
+
+export const USER_ROLES = process.env.USER_ROLES
+  ? process.env.USER_ROLES.split(', ')
+  : ['admin', 'user']
 
 export const signInDefaultValues = {
   email: '',
@@ -29,4 +36,27 @@ export const shippingAddressDefaultValues = {
   city: '',
   postalCode: '',
   country: '',
+}
+
+export const productDefaultValues = {
+  name: '',
+  slug: '',
+  category: '',
+  images: [],
+  brand: '',
+  description: '',
+  price: '0',
+  stock: 0,
+  rating: '0',
+  numReviews: 0,
+  isFeatured: false,
+  banner: null,
+}
+
+export const reviewFormDefaultValues = {
+  userId: '',
+  productId: '',
+  title: '',
+  description: '',
+  rating: 1,
 }

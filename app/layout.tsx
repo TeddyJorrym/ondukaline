@@ -4,6 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from 'sonner'
 import React from "react";
+import { ThemeProvider } from "@/components/shared/theme-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,7 +32,18 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className={cn("min-h-screen bg-background font-sans antialiased")}>{children} <Toaster/> </body>
+      <body className={cn("min-h-screen bg-background font-sans antialiased")}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster />
+        </ThemeProvider>
+        
+        {children} <Toaster/> </body>
     </html>
   );
 }

@@ -1,10 +1,11 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import React from 'react'
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Product } from '@/types'
 import ProductPrice from './product-price'
+import Rating from './rating'
+import { Button } from '@/components/ui/button'
 
 const ProductCard = ({ product }: { product: Product }) => {
   return (
@@ -21,21 +22,31 @@ const ProductCard = ({ product }: { product: Product }) => {
         </Link>
       </CardHeader>
       <CardContent className="p-4 grid gap-4">
-        <div className="grid gap-1.5 text-sm leading-4">
-          <p className="text-xs leading-3">{product.brand}</p>
+        <div>
+          <p className="text-xs">{product.brand}</p>
         </div>
-        <div className="grid gap-1.5 text-sm leading-4">
+        <div>
           <Link href={`/product/${product.slug}`}>
             <h2 className="text-sm font-medium">{product.name}</h2>
           </Link>
         </div>
         <div className="flex-between gap-4">
-          <p>{product.rating} stars</p>
+          <Rating value={Number(product.rating)} />
           {product.stock > 0 ? (
             <ProductPrice value={Number(product.price)} />
           ) : (
             <p className="text-destructive">Out of Stock</p>
           )}
+        </div>
+        <div>
+          <Link
+            href={`/quickview/product/${[product.slug]}`}
+            className="w-full"
+          >
+            <Button variant="outline" size="sm" className="flex gap-2 w-full">
+              <span>Quick View</span>
+            </Button>
+          </Link>
         </div>
       </CardContent>
     </Card>
