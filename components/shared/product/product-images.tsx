@@ -20,7 +20,7 @@ export default function ProductImages({
         width={1000}
         height={1000}
         priority
-        className="min-h-[300px] w-full object-cover object-center"
+        className="min-h-75 w-full object-cover object-center"
       />
 
       <div className="flex">

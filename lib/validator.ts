@@ -1,5 +1,5 @@
 import * as z from 'zod'
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod'
+import { createInsertSchema } from 'drizzle-zod'
 import { formatNumberWithDecimal } from './utils'
 import { PAYMENT_METHODS } from './constants'
 import { orderItems, orders, products, reviews } from '@/db/schema'

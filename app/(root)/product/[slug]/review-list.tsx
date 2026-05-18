@@ -70,7 +70,7 @@ export default function ReviewList({
       const res = await getReviews({ productId, page: 1 })
       setReviews([...res.data])
       setTotalPages(res.totalPages)
-    } catch (err) {
+    } catch {
       toast.error('Error in fetching reviews')
     }
   }
@@ -132,7 +132,7 @@ export default function ReviewList({
             Write a review
           </Button>
 
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-106.25">
             <Form {...form}>
               <form method="post" onSubmit={form.handleSubmit(onSubmit)}>
                 <DialogHeader>

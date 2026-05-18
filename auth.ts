@@ -141,7 +141,7 @@ export const config = {
   return token
 },
 
-    session: async ({ session, token, trigger, user }) => {
+    session: async ({ session, token, trigger }) => {
       if (session.user) {
         session.user.id = token.sub as string
         session.user.role = token.role as string
